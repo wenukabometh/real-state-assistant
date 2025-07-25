@@ -34,7 +34,6 @@ It uses:
 
 ```bash
 git clone https://github.com/wenukabometh/real-state-assistant.git
-cd rag-groq
 ```
 
 ### 2. Install Dependencies
