@@ -1,83 +1,40 @@
-from uuid import uuid4
+import os
+import tempfile
 from dotenv import load_dotenv
-from pathlib import Path
-from langchain.chains import RetrievalQAWithSourcesChain
-from langchain_community.document_loaders import UnstructuredURLLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
+
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain.chains import RetrievalQA
 from langchain_groq import ChatGroq
-from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 
 load_dotenv()
 
+groq_api_key = os.getenv("GROQ_API_KEY")
+if not groq_api_key:
+    raise ValueError("Missing GROQ_API_KEY in environment variables.")
 
-# CONSTANTS
+llm = ChatGroq(groq_api_key=groq_api_key, model_name="llama3-70b-8192")
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-CHUNK_SIZE = 1000
-EMBEDDING_MODEL = 'Alibaba-NLP/gte-base-en-v1.5'
-VECTORSTORE_DIR = Path(__file__).parent/'resources/vectorstore'
-COLLECTION_NAME = 'real_state'
+def query_from_urls(urls, question):
+    # Load documents
+    loader = WebBaseLoader(urls)
+    docs = loader.load()
 
-llm = None
-vectore_store = None
+    # Chunk the documents
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    documents = splitter.split_documents(docs)
 
-def initialize_components():
-    global llm, vectore_store
+    # Use Chroma in a temp directory
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        vectordb = Chroma.from_documents(documents, embeddings, persist_directory=tmpdirname)
 
-    if llm is None:
-        llm = ChatGroq(model='llama-3.3-70b-versatile', temperature=0.9, max_tokens=500)
+        # Build retrieval chain
+        retriever = vectordb.as_retriever()
+        qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
 
-    if vectore_store is None:
-        ef = HuggingFaceEmbeddings(
-            model_name = EMBEDDING_MODEL,
-            model_kwargs = {'trust_remote_code': True}
-
-        )
-
-        vectore_store = Chroma(
-            collection_name=COLLECTION_NAME,
-            embedding_function=ef,
-            persist_directory=str(VECTORSTORE_DIR)
-        )
-
-def process_urls(urls): 
-
-    print("Initialize components")
-
-    initialize_components()
-
-    vectore_store.reset_collection()
-
-    print("Load data")
-
-    loader = UnstructuredURLLoader(urls=urls)
-    data = loader.load()
-
-    print("Split Text")
-
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size = CHUNK_SIZE,
-        separators=['\n\n','\n',' ']
-    )
-    docs = text_splitter.split_documents(data)
-
-    print("Add docs to vector db")
-
-    uuids = [str(uuid4()) for _ in range(len(docs))]
-
-    vectore_store.add_documents(docs, ids=uuids)
-
-if __name__ == "__main__":
-    urls = [
-        "https://www.cnbc.com/2024/12/21/how-the-federal-reserves-rate-policy-affects-mortgages.html",
-        "https://www.cnbc.com/2024/12/20/why-mortgage-rates-jumped-despite-fed-interest-rate-cut.html"
-    ]
-
-    process_urls(urls)
-
-    results = vectore_store.similarity_search(
-        '30 year mortage rate',
-        k=2
-    )
-
-    print(results)
+        # Ask the question
+        result = qa_chain.invoke({"query": question})
+        return result['result'], urls
