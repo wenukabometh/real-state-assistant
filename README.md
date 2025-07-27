@@ -65,3 +65,7 @@ Ask your question in the input box.
 Click "Ask".
 
 Get a precise answer, with source URLs.
+
+### 🙏 Acknowledgement
+
+This project was completed as part of the Gen AI & Data Science on Codebasics.

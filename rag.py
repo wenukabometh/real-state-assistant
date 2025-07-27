@@ -6,9 +6,9 @@ from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
-from langchain.chains import RetrievalQA
+from langchain.chains import RetrievalQAWithSourcesChain
 from langchain_groq import ChatGroq
-
+from prompt import prompt, example_prompt
 load_dotenv()
 
 groq_api_key = os.getenv("GROQ_API_KEY")
@@ -33,8 +33,17 @@ def query_from_urls(urls, question):
 
         # Build retrieval chain
         retriever = vectordb.as_retriever()
-        qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
+        qa_chain = RetrievalQAWithSourcesChain.from_chain_type(
+            llm=llm,
+            chain_type='stuff',
+            retriever=retriever,
+            return_source_documents=True,
+            chain_type_kwargs={
+                "prompt": prompt,
+                "document_prompt": example_prompt
+            }
+        )
 
         # Ask the question
-        result = qa_chain.invoke({"query": question})
-        return result['result'], urls
+        result = qa_chain.invoke({"question": question})
+        return result['answer'], urls
